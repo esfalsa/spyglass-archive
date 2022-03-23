@@ -1,0 +1,19 @@
+name: GitHub Actions Demo
+on: push
+jobs:
+  download-spyglass-timesheet:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v3
+      with:
+        python-version: '3.x'
+        cache: 'pip'
+    - run: pip install -r requirements.txt
+    - run: python Spyglass-cli.py -n Esfalsa
+    - name: set release date
+      run: |
+        echo "DATE=$(date +"%b %d %Y")" >> ${GITHUB_ENV}
+    - uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Spyglass ${{ env.DATE }}
