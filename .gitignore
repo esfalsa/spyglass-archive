@@ -139,3 +139,10 @@ regions.xml.gz
 ## OTHER
 **/.DS_Store
 .vscode
+
+## JEKYLL
+_site
+.sass-cache
+.jekyll-cache
+.jekyll-metadata
+vendor
