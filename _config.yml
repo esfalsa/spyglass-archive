@@ -8,9 +8,7 @@ url: 'https://esfalsa.github.io' # the base hostname & protocol for your site, e
 github_username: esfalsa
 
 collections:
-  sheets:
-    output: true
-    permalink: /:collection/:name
+  - sheets
 
 # Build settings
 # theme: minima
