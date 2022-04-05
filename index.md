@@ -10,6 +10,6 @@ An archive of Spyglass sheets can be found below. Updated daily at 10am UTC. She
 
 {% for file in files %}
 
-- [{{ file.name }}](sheets/{{ file.name }})
+- [{{ file.name }}](sheets/{{ file.name }}) saved {{ file.modified_time }}
 
 {% endfor %}
