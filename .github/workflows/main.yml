@@ -13,7 +13,7 @@ jobs:
         python-version: '3.x'
         cache: 'pip'
     - run: pip install -r requirements.txt
-    - run: python Spyglass-cli.py -n Esfalsa -o "_sheets/Spyglass $(date --date="yesterday" +"%b %d %Y").xlsx"
+    - run: python Spyglass-cli.py -n Esfalsa -o "_sheets/Spyglass $(date --date="yesterday" +"%Y-%m-%d").xlsx"
     - run: echo "DATE=$(date --date="yesterday" +"%b %d %Y")" >> ${GITHUB_ENV}
     - uses: stefanzweifel/git-auto-commit-action@v4
       with:
