@@ -8,7 +8,7 @@ An archive of Spyglass sheets can be found below. Updated daily at 10am UTC. She
 This site uses Spyglass, which is GPLv3-licensed software originally released [here](https://github.com/Derpseh/Spyglass). Its license can be found [here](https://github.com/Derpseh/Spyglass/blob/master/LICENSE).
 
 {% assign sheets = site.collections | where: "label", "sheets" | first %}
-{% assign files = sheets.files | sort: "modified_time" | reverse %}
+{% assign files = sheets.files | sort: "name" | reverse %}
 
 {% for file in files %}
 
