@@ -12,6 +12,6 @@ This site uses Spyglass, which is GPLv3-licensed software originally released [h
 
 {% for file in files %}
 
-- [{{ file.name }}](sheets/{{ file.name }}) saved {{ file.modified_time }}
+- [{{ file.name }}](sheets/{{ file.name }})
 
 {% endfor %}
