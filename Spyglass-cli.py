@@ -19,6 +19,7 @@ VERSION = "2.0.1"
 # Modifications made by Khronion (KH)
 # Ported to Python 3 with additional modifications by Zizou (Ziz)
 # Yay more modifications (Aav)
+# Forked by Pronoun
 
 log_path = "debug.log"
 
@@ -61,9 +62,7 @@ def download_dump() -> None:
     Downloads the most recent daily dump from NS.
     :return: None
     """
-    dump_request = get(
-        "https://www.nationstates.net/pages/regions.xml.gz", stream=True
-    )
+    dump_request = get("https://www.nationstates.net/pages/regions.xml.gz", stream=True)
     with open("regions.xml.gz", "wb") as data_dump:
         for chunk in dump_request.iter_content(chunk_size=16 * 1024):
             data_dump.write(chunk)
@@ -119,11 +118,11 @@ else:
 
     # Ziz: Update lengths are now 1.5hrs and 2.5hrs for minor and major respectively
     if (
-            query(
-                "Do you want to manually specify update lengths? (y/n, defaults to n) ",
-                ["y", "n", ""],
-            )
-            == "y"
+        query(
+            "Do you want to manually specify update lengths? (y/n, defaults to n) ",
+            ["y", "n", ""],
+        )
+        == "y"
     ):
         try:
             MinorTime = int(input("Minor Time, seconds (3550): "))
@@ -191,11 +190,11 @@ dump_path = Path("./regions.xml.gz")
 if interactive:
     if dump_path.exists() and dump_path.is_file():
         if (
-                query(
-                    "Existing data dump found. Do you want to re-download the latest dump? (y/n, defaults to y) ",
-                    ["y", "n", ""],
-                )
-                == "y"
+            query(
+                "Existing data dump found. Do you want to re-download the latest dump? (y/n, defaults to y) ",
+                ["y", "n", ""],
+            )
+            == "y"
         ):
             write_log("INFO Found data dump, but re-downloading the latest..")
             print("Pulling data dump...")
@@ -265,9 +264,7 @@ names = [region.find("NAME") for region in region_list]
 num_nations = [region.find("NUMNATIONS") for region in region_list]
 delvotes = [region.find("DELEGATEVOTES") for region in region_list]
 delauth = [region.find("DELEGATEAUTH") for region in region_list]
-for name, nation_count, del_votes, auth in zip(
-        names, num_nations, delvotes, delauth
-):
+for name, nation_count, del_votes, auth in zip(names, num_nations, delvotes, delauth):
     RegionList.append(name.text)
     UrlString = f'=HYPERLINK("https://www.nationstates.net/region={name.text}")'
     RegionURLList.append(UrlString.replace(" ", "_"))
@@ -300,14 +297,6 @@ for region_embassies in [d.find("EMBASSIES") for d in region_list]:
             embassies.append(embassy.text)
     RegionEmbassyList.append(",".join(embassies))
 
-# Determine the total duration in seconds of minor and major
-if not SpeedOverride:
-    major = MajorList[-1] - MajorList[0]
-
-# ...unless we're overriding it
-else:
-    major = int(MajorTime)
-
 # Grabbing the cumulative number of nations that've updated by the time a region has.
 # The first entry is zero because time calculations need to reflect the start of region update, not the end
 CumulNationList = [0]
@@ -317,7 +306,7 @@ for a in NumNationList:
 # Calculate speed based on total population
 CumulNations = CumulNationList[-1]
 MinorNatTime = int(MinorTime) / CumulNations
-MajorNatTime = major / CumulNations
+MajorNatTime = int(MajorTime) / CumulNations
 MinTime = list()
 MajTime = list()
 
@@ -373,9 +362,9 @@ ws["L8"].value = "Nations/Sec"
 ws["L10"].value = "Spyglass Version"
 ws["L11"].value = "Date Generated"
 ws["M2"].value = CumulNations
-ws["M3"].value = major
-ws["M4"].value = major / CumulNations
-ws["M5"].value = 1 / (major / CumulNations)
+ws["M3"].value = MajorTime
+ws["M4"].value = MajorNatTime
+ws["M5"].value = 1 / MajorNatTime
 ws["M6"].value = MinorTime
 ws["M7"].value = MinorNatTime
 ws["M8"].value = 1 / MinorNatTime
