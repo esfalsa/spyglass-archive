@@ -10,8 +10,5 @@ Spyglass is open-source software originally released [here](https://github.com/D
 {% assign sheets = site.collections | where: "label", "sheets" | first %}
 {% assign files = sheets.files | sort: "name" | reverse %}
 
-{% for file in files %}
-
-- [{{ file.name }}](sheets/{{ file.name }})
-
+{% for file in files %} - [{{ file.name }}](sheets/{{ file.name }})
 {% endfor %}
