@@ -12,14 +12,13 @@ from typing import List
 from xml.etree import ElementTree
 
 # UPDATE THIS EVERY TIME A NEW RELEASE IS PACKAGED
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 
 # Spyglass
 # Source code by Devi aka Panzer Vier
 # Modifications made by Khronion (KH)
 # Ported to Python 3 with additional modifications by Zizou (Ziz)
 # Yay more modifications (Aav)
-# Forked by Pronoun
 
 log_path = "debug.log"
 
@@ -90,6 +89,8 @@ if "-h" in argv or "--help" in argv:
                   the current working directory.
      -l PATH      Write debug log to specified path.
      -m           Generate a minimized sheet without WFEs and embassies
+     -maj LENGTH  Specify custom length of major update, in seconds.
+     -min LENGTH  Specify custom length of minor update, in seconds.
     """
     )
     print(
@@ -112,6 +113,14 @@ YMD = f"{datetime.now().year}-{datetime.now().month}-{datetime.now().day}"
 if "-n" in argv:
     interactive = False
     UAgent = argv[argv.index("-n") + 1]
+
+    if "-min" in argv:
+        MinorTime = int(argv[argv.index("-min") + 1])
+    if "-maj" in argv:
+        MajorTime = int(argv[argv.index("-maj") + 1])
+    if "-min" in argv or "-maj" in argv:
+        SpeedOverride = True
+
 else:
     print(f"Spyglass {VERSION}: Generate NationStates region update timesheets.")
     UAgent = input("Nation Name: ")
@@ -193,13 +202,11 @@ write_log("INFO Searching for data dump...")
 dump_path = Path("./regions.xml.gz")
 if interactive:
     if dump_path.exists() and dump_path.is_file():
-        if (
-            query(
-                "Existing data dump found. Do you want to re-download the latest dump? (y/n, defaults to y) ",
-                ["y", "n", ""],
-            )
-            == "y"
-        ):
+        resp = query(
+            "Existing data dump found. Do you want to re-download the latest dump? (y/n, defaults to y) ",
+            ["y", "n", ""],
+        )
+        if resp == "y" or resp == "":
             write_log("INFO Found data dump, but re-downloading the latest..")
             print("Pulling data dump...")
             download_dump()
@@ -301,6 +308,14 @@ for region_embassies in [d.find("EMBASSIES") for d in region_list]:
             embassies.append(embassy.text)
     RegionEmbassyList.append(",".join(embassies))
 
+# Determine the total duration in seconds of minor and major
+if not SpeedOverride:
+    major = MajorList[-1] - MajorList[0]
+
+# ...unless we're overriding it
+else:
+    major = int(MajorTime)
+
 # Grabbing the cumulative number of nations that've updated by the time a region has.
 # The first entry is zero because time calculations need to reflect the start of region update, not the end
 CumulNationList = [0]
@@ -310,7 +325,7 @@ for a in NumNationList:
 # Calculate speed based on total population
 CumulNations = CumulNationList[-1]
 MinorNatTime = int(MinorTime) / CumulNations
-MajorNatTime = int(MajorTime) / CumulNations
+MajorNatTime = major / CumulNations
 MinTime = list()
 MajTime = list()
 
@@ -366,9 +381,9 @@ ws["L8"].value = "Nations/Sec"
 ws["L10"].value = "Spyglass Version"
 ws["L11"].value = "Date Generated"
 ws["M2"].value = CumulNations
-ws["M3"].value = MajorTime
-ws["M4"].value = MajorNatTime
-ws["M5"].value = 1 / MajorNatTime
+ws["M3"].value = major
+ws["M4"].value = major / CumulNations
+ws["M5"].value = 1 / (major / CumulNations)
 ws["M6"].value = MinorTime
 ws["M7"].value = MinorNatTime
 ws["M8"].value = 1 / MinorNatTime
