@@ -15,7 +15,7 @@ collections:
   - sheets
 
 plugins:
-    - jekyll-seo-tag
-    - jekyll-remote-theme
+  - jekyll-seo-tag
+  - jekyll-remote-theme
 
 remote_theme: pages-themes/primer@v0.6.0
