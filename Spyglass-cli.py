@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-from requests import get
+from requests import Session
 from requests.exceptions import HTTPError
 import gzip
 from openpyxl import Workbook
@@ -7,351 +6,364 @@ from openpyxl.styles import PatternFill, Alignment
 from openpyxl.styles.colors import Color
 from datetime import datetime
 from pathlib import Path
-from sys import argv
-from typing import List
-from xml.etree import ElementTree
-
-# UPDATE THIS EVERY TIME A NEW RELEASE IS PACKAGED
-VERSION = "2.0.3"
+import argparse
+from typing import List, Optional
+from lxml import etree
+import logging
 
 # Spyglass
 # Source code by Devi aka Panzer Vier
 # Modifications made by Khronion (KH)
 # Ported to Python 3 with additional modifications by Zizou (Ziz)
-# Yay more modifications (Aav)
+# Yay more modifications & V3 rewrite (Aav)
 
-log_path = "debug.log"
+# UPDATE THIS EVERY TIME A NEW RELEASE IS PACKAGED
+VERSION = "3.0.1"
 
+# Color declarations because OpenPyXL removed them :^)
 RED = Color(rgb="FFFF0000")
 GREEN = Color(rgb="FF00FF00")
 YELLOW = Color(rgb="FFFFFF00")
 
+# PatternFill declarations
+redFill = PatternFill(start_color=RED, end_color=RED, fill_type="solid")
+greenFill = PatternFill(start_color=GREEN, end_color=GREEN, fill_type="solid")
+yellowFill = PatternFill(start_color=YELLOW, end_color=YELLOW, fill_type="solid")
 
-# Method for writing a debug log
-def write_log(to_write: str) -> None:
-    """
-    Writes a string to the debug log.
-    :param to_write: str
-    :return: None
-    """
-    if log:
-        with open(log_path, "a") as out:
-            out.write(datetime.now().strftime(f"[%Y-%m-%d %H:%M:%S] {to_write}\n"))
-    else:
-        pass
+# Set up our default settings
+interactive = True
+minimize = False
+nation = ""
+SpeedOverride = False
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    filename="spyglass.log",
+    filemode="w",
+)
+logger = logging.getLogger(__name__)
 
 
 # Method for getting user input
-def query(args: str, options: List[str]) -> str:
+def query(inargs: str, options: List[str]) -> str:
     """
     Gets user input from the command line and checks it against possible options.
-    :param args: str
+    :param inargs: str
     :param options: List[str]
     :return: str
     """
     while True:
-        response = input(args)
+        response = input(inargs)
         if response in options:
             return response
 
 
 # Method for downloading data dump, and saving it to disk
-def download_dump() -> None:
+def download_dump(rsession: Session) -> None:
     """
     Downloads the most recent daily dump from NS.
     :return: None
     """
-    dump_request = get(
-        "https://www.nationstates.net/pages/regions.xml.gz",
-        headers=headers,
-        stream=True,
+    dump_request = rsession.get(
+        "https://www.nationstates.net/pages/regions.xml.gz", stream=True
     )
     with open("regions.xml.gz", "wb") as data_dump:
         for chunk in dump_request.iter_content(chunk_size=16 * 1024):
             data_dump.write(chunk)
 
 
-# Parse arguments, if any...
-
-# Show help message and terminate
-if "-h" in argv or "--help" in argv:
-    print(f"Spyglass {VERSION}: Generate NationStates region update timesheets.\n")
-    print("Developed by Panzer Vier, with additions by Khronion, Zizou, and Aav\n")
-    print(f"usage: {argv[0]} [-h] [-n NATION] [-o OUTFILE] [-s | -l PATH]\n")
-    print(
-        """Optional arguments:
-     -h           Show this help message and exit.
-     -n NATION    Specify Nation to identify user by. In order to comply with
-                  NationStates API rules, this must be the user's nation. Use
-                  underscores instead of spaces.
-     -o OUTFILE   File to output the generated timesheet in XLSX format to.
-     -s           Suppress creating a debug log file. Log files are written to
-                  the current working directory.
-     -l PATH      Write debug log to specified path.
-     -m           Generate a minimized sheet without WFEs and embassies
-     -maj LENGTH  Specify custom length of major update, in seconds.
-     -min LENGTH  Specify custom length of minor update, in seconds.
+def sanitize(string: str) -> Optional[str]:
     """
-    )
-    print(
-        """If run without arguments, Spyglass runs in interactive mode and outputs to its
-working directory."""
-    )
-    raise SystemExit(1)
+    Prevents Excel from interpreting strings as formulas.
+    Thanks Khronion for the original catch & fix.
+    -- Aav
+    :param string:
+    :return:
+    """
+    # noinspection PyBroadException
+    try:
+        if string[0] in ["=", "+", "-", "@"]:
+            return f"'{string}"
+        else:
+            return string
 
-interactive = True
-process_embassies = True
-log = True
+    except Exception:
+        return None
 
-SpeedOverride = False
-MinorTime = 3550
-MajorTime = 5350
 
-YMD = f"{datetime.now().year}-{datetime.now().month}-{datetime.now().day}"
+# Set up command line arguments
+parser = argparse.ArgumentParser(
+    prog="Spyglass",
+    description=f"Spyglass {VERSION}: Generate NationStates region update timesheets.\nDeveloped by Panzer Vier, "
+    f"with additions by Khronion, Zizou, and Aav",
+    add_help=True,
+)
+parser.add_argument(
+    "-n",
+    "--nation",
+    help="Nation to use for authentication. Use underscores instead of spaces.",
+    required=False,
+)
+parser.add_argument(
+    "-o",
+    "--outfile",
+    help="Name of the output file. Defaults to 'spyglass.xlsx'.",
+    default=f"spyglass{datetime.now().year}-{datetime.now().month}-{datetime.now().day}.xlsx",
+    required=False,
+)
+parser.add_argument(
+    "-m",
+    "--minimize",
+    help="Generate a minimized sheet without WFEs and embassies",
+    action="store_true",
+    required=False,
+)
+parser.add_argument(
+    "-s",
+    "--suppress",
+    help="Suppresses the creation of a debug log file",
+    action="store_true",
+    required=False,
+)
+parser.add_argument(
+    "--minor",
+    help="The length of minor update in seconds.",
+    default=3550,
+    required=False,
+)
+parser.add_argument(
+    "--major",
+    help="The length of major update in seconds.",
+    default=5350,
+    required=False,
+)
+parser.add_argument(
+    "-d",
+    "--dump",
+    help="Do not download the latest data dump. Use the one in the current directory.",
+    action="store_true",
+    required=False,
+)
+parser.add_argument(
+    "-p",
+    "--path",
+    help="Path to the data dump. Defaults to 'regions.xml.gz'.",
+    default="./regions.xml.gz",
+    required=False,
+)
 
-# Set nation name
-if "-n" in argv:
+args = parser.parse_args()
+
+if args.suppress:
+    logger.disabled = True  # Disable logging
+
+if args.minimize:
+    minimize = True  # Disable WFEs and embassies
+
+if args.major != 5350:
+    SpeedOverride = True  # Override the default update times
+
+logger.info(f"Spyglass {VERSION} started")
+logger.info(f"Starting with arguments: {args}")
+
+# If a nation is supplied, we run in headless mode
+if args.nation:
     interactive = False
-    UAgent = argv[argv.index("-n") + 1]
-
-    if "-min" in argv:
-        MinorTime = int(argv[argv.index("-min") + 1])
-    if "-maj" in argv:
-        MajorTime = int(argv[argv.index("-maj") + 1])
-    if "-min" in argv or "-maj" in argv:
-        SpeedOverride = True
-
 else:
-    print(f"Spyglass {VERSION}: Generate NationStates region update timesheets.")
-    UAgent = input("Nation Name: ")
-    filename = f"SpyglassSheet{YMD}.xlsx"
+    # We need to get a nation to set as the useragent for the session
+    nation = input("Please enter your nation name: ").lower().replace(" ", "_")
+    logger.info(f"User entered nation: {nation}")
 
-    if query("Include region embassies? (y/n, defaults to y) ", ["y", "n", ""]) == "n":
-        process_embassies = False
-
-    # Ziz: Update lengths are now 1.5hrs and 2.5hrs for minor and major respectively
-    if (
-        query(
-            "Do you want to manually specify update lengths? (y/n, defaults to n) ",
-            ["y", "n", ""],
-        )
-        == "y"
-    ):
-        try:
-            MinorTime = int(input("Minor Time, seconds (3550): "))
-        except ValueError:
-            MinorTime = 3550
-        try:
-            MajorTime = int(input("Major Time, seconds (5350): "))
-        except ValueError:
-            MajorTime = 5350
-        SpeedOverride = True
-
-# Set output filename
-if "-o" in argv:
-    filename = argv[argv.index("-o") + 1]
-else:
-    filename = f"SpyglassSheet{YMD}.xlsx"
-
-# Enable debug log
-if "-s" in argv:
-    log = False
-
-if "-m" in argv:
-    process_embassies = False
-else:
-    if "-l" in argv:
-        log_path = argv[argv.index("-l") + 1]
-    starting_args = " ".join(argv[1:])
-    write_log(f"INFO Spyglass started with arguments: {starting_args}")
-    write_log(f"INFO User Nation: {UAgent}")
-    write_log(f"INFO Out File: {filename}")
-
-# Set headers as required by NS TOS
-headers = {
-    "User-Agent": f"Spyglass/{VERSION} (github: https://github.com/Derpseh/Spyglass ; user:{UAgent}; Authenticating)"
-}
-
-# Verify specified nation is valid -- terminate if not
-try:
-    params = {"nation": UAgent, "q": "influence"}
-    testreq = get(
-        "https://www.nationstates.net/cgi-bin/api.cgi", headers=headers, params=params
-    )
-    testreq.raise_for_status()
-    headers = {
-        "User-Agent": f"Spyglass/{VERSION} (github: https://github.com/Derpseh/Spyglass ; user:{UAgent})"
+# Construct our requests session now that we have an useragent
+session = Session()
+session.headers.update(
+    {
+        "User-Agent": f"Spyglass/{VERSION} (github: https://github.com/Derpseh/Spyglass; user:{nation}; Authenticating)"
     }
-except HTTPError:
-    print(
-        "Nation not found. Be sure to input the name of a nation that actually exists."
+)
+logger.info("Session constructed")
+
+# Ensure that this nation actually exists
+try:
+    req = session.get(
+        f"https://www.nationstates.net/cgi-bin/api.cgi?nation={nation}&q=region"
     )
-    write_log(f"ERR  {UAgent} is not a valid nation. Terminating.")
-    raise SystemExit(1)
+    req.raise_for_status()
+except HTTPError:
+    logger.error("Nation does not exist.")
+    print("The provided nation does not exist... terminating.")
+    raise SystemExit("Authentication failure.")
 
-write_log(f"INFO Minor length: {MinorTime}")
-write_log(f"INFO Major length: {MajorTime}")
-
-# Pulling a list of regions that are founderless and non-passworded. Eventually, we'll go through and highlight those
-# on the sheet
-
-write_log("INFO Searching for data dump...")
-
+logger.info("Nation exists, proceeding.")
+session.headers.update(
+    {
+        "User-Agent": f"Spyglass/{VERSION} (github: https://github.com/Derpseh/Spyglass; user:{nation})"
+    }
+)
+logger.info("Updated useragent.")
+logger.info("Checking if there is a data dump downloaded.")
 # Ziz: If a data dump is detected in the current directory, ask if user wants to re-download latest dump
 # Ziz: Otherwise just download the latest data dump if nothing is detected
-dump_path = Path("./regions.xml.gz")
+
+dump_path = Path(args.path)
 if interactive:
     if dump_path.exists() and dump_path.is_file():
-        resp = query(
-            "Existing data dump found. Do you want to re-download the latest dump? (y/n, defaults to y) ",
-            ["y", "n", ""],
-        )
-        if resp == "y" or resp == "":
-            write_log("INFO Found data dump, but re-downloading the latest..")
+        if (
+            query(
+                "Existing data dump found. Do you want to re-download the latest dump? (y/n) ",
+                ["y", "n", ""],
+            )
+            == "y"
+        ):
+            logger.info("Found data dump, but re-downloading the latest..")
             print("Pulling data dump...")
-            download_dump()
-            write_log("INFO Download complete!")
+            download_dump(session)
+            logger.info("Download complete!")
         else:
-            write_log("INFO Using data dump already present...")
+            logger.info("Using data dump already present...")
             print("Using current dump...")
     else:
-        write_log("INFO No existing data dump found, downloading latest...")
+        logger.info("No existing data dump found, downloading latest...")
         print("No existing data dump found. Pulling data dump...")
-        download_dump()
-        write_log("INFO Download complete!")
+        download_dump(session)
+        logger.info("Download complete!")
 else:
-    write_log("INFO running in non-interactive mode, downloading data dump...")
-    print("Pulling data dump...")
-    download_dump()
-    write_log("INFO Download complete!")
+    if dump_path.exists() and dump_path.is_file():
+        if args.dump:
+            logger.info("Using data dump already present...")
+        else:
+            download_dump(session)
+            logger.info("Download complete!")
+    else:
+        logger.info("No existing data dump found, downloading latest...")
+        download_dump(session)
+        logger.info("Download complete!")
 
-redFill = PatternFill(start_color=RED, end_color=RED, fill_type="solid")
-greenFill = PatternFill(start_color=GREEN, end_color=GREEN, fill_type="solid")
-yellowFill = PatternFill(start_color=YELLOW, end_color=YELLOW, fill_type="solid")
+# Get the lists of founderless and passwordless regions
+logger.info("Getting founderless regions...")
+fless = session.get(
+    "https://www.nationstates.net/cgi-bin/api.cgi?q=regionsbytag;tags=governorless"
+).text.split(",")
+logger.info("Getting passwordless regions...")
+pless = session.get(
+    "https://www.nationstates.net/cgi-bin/api.cgi?q=regionsbytag;tags=-password"
+).text.split(",")
 
-# Un-gzipping
-# Ziz: Now we can just decompress the dump and hand it to the parser without writing to disk
-with gzip.open("regions.xml.gz", "rb") as dump:
-    regions = dump.read()
-
-# Opening up my virtual sheet. Gotta find a better name for it, sometime. The pink tab colour's pretty sweet, tho.
-wb = Workbook()
-ws = wb.active
-ws.title = "Spyglass Timesheet"
-ws.sheet_properties.tabColor = "FFB1B1"
-
-RegionList = list()
-RegionURLList = list()
-RegionWFEList = list()
-RegionEmbassyList = list()
-NumNationList = list()
-DelVoteList = list()
-ExecList = list()
-MajorList = list()
-
-# Sanitize our founderless regions list a wee bit, 'cause at the moment, it's xml, and xml is gross.
-print("Processing data...")
-# Total number of queries is low, so rate limit is unnecessary
-req = get(
-    "https://www.nationstates.net/cgi-bin/api.cgi?q=regionsbytag;tags=-password",
-    headers=headers,
-).text
-req2 = get(
-    "https://www.nationstates.net/cgi-bin/api.cgi?q=regionsbytag;tags=founderless",
-    headers=headers,
-).text
-
-unfounded_list = ElementTree.fromstring(req2).find("REGIONS").text.split(",")
-pwless_list = ElementTree.fromstring(req).find("REGIONS").text.split(",")
-
-# Pulling, in order, region names, converting to a region url, number of nations in that region, and voting power that
-# delegate has.
+# Open up the data dump and parse it
+logger.info("Parsing data dump...")
+dump = gzip.open(args.path, "rb").read()
 
 # Ziz: Data dump soup, mmm... almost as tasty as people!
-# Aav: Refactored old code to use zip. I did leave Ziz's cursed comment though
-data = ElementTree.fromstring(regions)
+# Aav, at some point in the past: Refactored old code to use zip. I did leave Ziz's cursed comment though
+# Aav 3/20/23: It's 2023, and we've finally adopted lxml... it's only been out since 2005.
+data = etree.fromstring(dump)
 region_list = data.findall("REGION")
+logger.info("Data dump parsed successfully!")
+
+# Now that we created a data list, purge the data dump from memory
+del dump
+del data
+logger.info("Data dump purged from memory.")
+
+# Happiness ensues for low-memory systems!
+regions = []
 names = [region.find("NAME") for region in region_list]
 num_nations = [region.find("NUMNATIONS") for region in region_list]
 delvotes = [region.find("DELEGATEVOTES") for region in region_list]
 delauth = [region.find("DELEGATEAUTH") for region in region_list]
-for name, nation_count, del_votes, auth in zip(names, num_nations, delvotes, delauth):
-    RegionList.append(name.text)
-    UrlString = f'=HYPERLINK("https://www.nationstates.net/region={name.text}")'
-    RegionURLList.append(UrlString.replace(" ", "_"))
-    NumNationList.append(int(nation_count.text))
-    DelVoteList.append(int(del_votes.text))
-    AuthString = auth.text
-    if AuthString[0] == "X":
-        ExecList.append(True)
-    else:
-        ExecList.append(False)
-
-# KH: pull major times from daily dump
-# Aav: Refactored into listcomp 3/17/2022
 MajorList = [int(d.find("LASTUPDATE").text) for d in region_list]
+wfelist = [d.find("FACTBOOK") for d in region_list]
+logger.info("List parsing complete!")
 
-# KH: gather WFE info
-for wfe in [d.find("FACTBOOK") for d in region_list]:
-    text = wfe.text
-    try:
-        if text[0] in ["=", "+", "-", "@"]:
-            text = f"'{text}"  # IMPORTANT: prevent excel from parsing WFEs as formulas
-        RegionWFEList.append(text)
-    except TypeError:  # no WFE
-        RegionWFEList.append("")
+# Aav: Finding embassies outside of that zip loop and then referencing inside is probably faster than searching
+# the entire dump every. single. time.
 
-for region_embassies in [d.find("EMBASSIES") for d in region_list]:
-    embassies = list()
-    if process_embassies:
-        for embassy in region_embassies.findall("EMBASSY"):
-            embassies.append(embassy.text)
-    RegionEmbassyList.append(",".join(embassies))
+embassies = {}
+for region in region_list:
+    name = region.find("NAME").text
+    l = []
+    for embassy in region.find("EMBASSIES").findall("EMBASSY"):
+        l.append(embassy.text)
+    embassies[name] = l
 
-# Determine the total duration in seconds of minor and major
+logger.info("Embassy parsing complete!")
+
+for name, nation_count, del_votes, auth, time, wfe in zip(
+    names, num_nations, delvotes, delauth, MajorList, wfelist
+):
+    _ = {
+        "name": name.text,
+        "url": f'=HYPERLINK("https://www.nationstates.net/region={name.text}")',
+        "num_nations": int(nation_count.text),
+        "del_votes": int(del_votes.text),
+        "exec": auth.text[0] == "X",
+        "last_update": time,
+        "wfe": sanitize(wfe.text) if not minimize else None,
+        "embassies": embassies[name.text]
+        if not minimize or not len(embassies[name.text])
+        else None,
+    }
+    regions.append(_)
+logger.info("Region dictionary created!")
+
+# Get rid of that parsed XML
+# Gotta go FASSSSSSSTTTTTTT
+del region_list
+
+major = int(args.major)
+minor = int(args.minor)
+
 if not SpeedOverride:
-    major = MajorList[-1] - MajorList[0]
-
-# ...unless we're overriding it
+    # Calculate major based off of the daily dump
+    last_region = regions[-1]
+    first_region = regions[0]
+    major = last_region["last_update"] - first_region["last_update"]
+    logger.info(f"Major calculated as {major}")
+    logger.info(f"Minor set as {minor}")
 else:
-    major = int(MajorTime)
+    logger.info("Speed override enabled, skipping major calculation.")
+    logger.info(f"Major set to {major}")
+    logger.info(f"Minor set to {minor}")
 
-# Grabbing the cumulative number of nations that've updated by the time a region has.
-# The first entry is zero because time calculations need to reflect the start of region update, not the end
-CumulNationList = [0]
-for a in NumNationList:
-    CumulNationList.append(int(a) + CumulNationList[-1])
+CumuNatList = [
+    0,
+]  # Per Devi, the first number needs to be zero so that the times reflect the start of update,
+# not the end
 
-# Calculate speed based on total population
-CumulNations = CumulNationList[-1]
-MinorNatTime = int(MinorTime) / CumulNations
-MajorNatTime = major / CumulNations
-MinTime = list()
-MajTime = list()
+for region in regions:
+    region.update({"cumu_nations": CumuNatList[-1]})
+    CumuNatList.append(CumuNatList[-1] + region["num_nations"])
+logger.info("Cumulative nation list created!")
+logger.info(f"Total number of nations: {CumuNatList[-1]}")
 
-# Getting the approximate major/minor update times.
-for a in CumulNationList:
-    temptime = int(a * MinorNatTime)
-    tempsecs = temptime % 60
-    tempmins = int((temptime // 60) % 60)
-    temphours = int(temptime // 3600)
-    MinTime.append(f"{temphours}:{tempmins}:{tempsecs}")
+# Calculate the time per nation for major and minor
+major_per_nation = major / CumuNatList[-1]
+minor_per_nation = minor / CumuNatList[-1]
 
-# If user specifies update length, use special handling.
-if SpeedOverride:
-    for a in CumulNationList:
-        temptime = int(a * MajorNatTime)
-        tempsecs = temptime % 60
-        tempmins = int((temptime // 60) % 60)
-        temphours = int(temptime // 3600)
-        MajTime.append(f"{temphours}:{tempmins}:{tempsecs}")
-else:
-    for a in MajorList:
-        temptime = a - MajorList[0]
-        tempsecs = temptime % 60
-        tempmins = int((temptime // 60) % 60)
-        temphours = int(temptime // 3600)
-        MajTime.append(f"{temphours}:{tempmins}:{tempsecs}")
+for region in regions:
+    nats = region["cumu_nations"]
+    tempminor = int(nats * minor_per_nation)
+    tempmajor = int(nats * major_per_nation)
+    # Convert seconds to hours, minutes, seconds
+    # ti_x = tempminor, tm_x = tempmajor
+    ti_s = tempminor % 60
+    ti_m = int((tempminor // 60) % 60)
+    ti_h = int((tempminor // 3600))
+    region.update({"minor": f"{ti_h}:{ti_m}:{ti_s}"})
+    tm_s = tempmajor % 60
+    tm_m = int((tempmajor // 60) % 60)
+    tm_h = int((tempmajor // 3600))
+    region.update({"major": f"{tm_h}:{tm_m}:{tm_s}"})
+logger.info("Speeds calculated")
+
+# Create the spreadsheet
+wb = Workbook()
+ws = wb.active
+ws.title = "Spyglass Timesheet"
+ws.sheet_properties.tabColor = "FFB1B1"
+logger.info("Spreadsheet created!")
 
 # Splashing some headers and stuff onto the spreadsheet for legibility purposes!
 ws["A1"].value = "Regions"
@@ -365,7 +377,7 @@ else:
     ws["F1"].value = "Major Upd. (true)"
 ws["G1"].value = "Del. Votes"
 ws["H1"].value = "Del. Endos"
-if process_embassies:
+if not minimize:
     ws["I1"].value = "Embassies"
 ws["J1"].value = "WFE"
 
@@ -380,76 +392,56 @@ ws["L7"].value = "Secs/Nation"
 ws["L8"].value = "Nations/Sec"
 ws["L10"].value = "Spyglass Version"
 ws["L11"].value = "Date Generated"
-ws["M2"].value = CumulNations
+ws["M2"].value = CumuNatList[-1]
 ws["M3"].value = major
-ws["M4"].value = major / CumulNations
-ws["M5"].value = 1 / (major / CumulNations)
-ws["M6"].value = MinorTime
-ws["M7"].value = MinorNatTime
-ws["M8"].value = 1 / MinorNatTime
+ws["M4"].value = major / CumuNatList[-1]
+ws["M5"].value = 1 / (major / CumuNatList[-1])
+ws["M6"].value = minor
+ws["M7"].value = minor_per_nation
+ws["M8"].value = 1 / minor_per_nation
 ws["M10"].value = VERSION
-ws["M11"].value = YMD
+ws["M11"].value = f"{datetime.now().year}-{datetime.now().month}-{datetime.now().day}"
 
-# There's probably a better way of doing this, but my coding skills are dubious :^)
-# Anyways, actually pasting the information from our various lists into the spreadsheet.
-
-# Aav: Change to using enumerate instead of an external counter
-for counter, a in enumerate(RegionList):
-    # If a region's founderless, highlight it for easy reference. Add a tilde, 'cause my spreadsheet program doesn't
-    # do filtering by colour
-
-    b = a
-    # KH: ~ indicates hittable
-    # KH: yellow = passwordless and exec delegate
-    if a in pwless_list and ExecList[counter]:
+for counter, region in enumerate(regions):
+    name = region["name"]
+    if region["name"] in pless and region["exec"] is True:
         ws.cell(row=counter + 2, column=1).fill = yellowFill
         ws.cell(row=counter + 2, column=2).fill = yellowFill
-        b = f"{a}~"
-    # KH: green = founderless and passwordless
-    if a in unfounded_list and a in pwless_list:
+        name = f"{region['name']}~"
+    if region["name"] in fless and region["name"] in pless:
         ws.cell(row=counter + 2, column=1).fill = greenFill
         ws.cell(row=counter + 2, column=2).fill = greenFill
-        b = f"{a}~"
-    # KH: red = passwordless
-    if a not in pwless_list:
+        name = f"{region['name']}~"
+    if region["name"] not in pless:
         ws.cell(row=counter + 2, column=1).fill = redFill
         ws.cell(row=counter + 2, column=2).fill = redFill
-        b = f"{a}*"
-    ws.cell(row=counter + 2, column=1).value = b
-    ws.cell(row=counter + 2, column=2).value = RegionURLList[counter]
-    ws.cell(row=counter + 2, column=3).value = NumNationList[counter]
-    ws.cell(row=counter + 2, column=4).value = CumulNationList[counter]
-    ws.cell(row=counter + 2, column=5).value = MinTime[counter]
-    ws.cell(row=counter + 2, column=5).alignment = Alignment(horizontal="right")
-    ws.cell(row=counter + 2, column=6).value = MajTime[counter]
-    ws.cell(row=counter + 2, column=6).alignment = Alignment(horizontal="right")
-    ws.cell(row=counter + 2, column=7).value = DelVoteList[counter]
-    ws.cell(row=counter + 2, column=8).value = DelVoteList[counter] - 1
-    ws.cell(row=counter + 2, column=9).value = RegionEmbassyList[counter]
-    ws.cell(row=counter + 2, column=10).value = RegionWFEList[counter]
-    ws.cell(row=counter + 2, column=11).value = " "
+        name = f"{region['name']}*"
 
-    # Highlight delegate-less regions. They're good for tagging, or whatever~
-    if DelVoteList[counter] == 0:
+    ws.cell(row=counter + 2, column=1).value = name
+    ws.cell(row=counter + 2, column=2).value = region["url"]
+    ws.cell(row=counter + 2, column=3).value = region["num_nations"]
+    ws.cell(row=counter + 2, column=4).value = region["cumu_nations"]
+    ws.cell(row=counter + 2, column=5).value = region["minor"]
+    ws.cell(row=counter + 2, column=5).alignment = Alignment(horizontal="right")
+    ws.cell(row=counter + 2, column=6).value = region["major"]
+    ws.cell(row=counter + 2, column=6).alignment = Alignment(horizontal="right")
+    ws.cell(row=counter + 2, column=7).value = region["del_votes"]
+    ws.cell(row=counter + 2, column=8).value = region["del_votes"] - 1
+    ws.cell(row=counter + 2, column=9).value = (
+        ",".join(region["embassies"]) if not minimize else " "
+    )
+    ws.cell(row=counter + 2, column=10).value = region["wfe"] if not minimize else " "
+    ws.cell(row=counter + 2, column=11).value = " "
+    if region["del_votes"] == 0:
         ws.cell(row=counter + 2, column=8).fill = redFill
 
-# You know those situations where you can't quite get code to work, and kinda fumble around until you find something
-# that does?
-#
-# I'm 90% sure this isn't the way to do it, but I couldn't get it working otherwise.
-# Anyways, setting the region name column's width, so that it doesn't cut everything off.
 sheet = wb["Spyglass Timesheet"]
 sheet.column_dimensions["A"].width = 45
 sheet["J1"].alignment = Alignment(horizontal="right")
 
-write_log("INFO Done processing data! Saving sheet.")
+logger.info("Spreadsheet populated!")
+print("Saving spreadsheet...")
+wb.save(args.outfile)
 
-# Really should just name the sheets 'Derps is amazing in every conceivable way'. Would be some free ego-massage.
-print("Saving sheet...")
-wb.save(filename)
-# Ziz: Don't delete the data dump, since it can be reused if it's recent enough
-
-write_log(f"INFO Successfully saved to {filename}")
-write_log(f"INFO Spyglass run complete. Exiting...")
-
+logger.info(f"INFO Successfully saved to {args.outfile}")
 raise SystemExit(0)
