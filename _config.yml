@@ -11,9 +11,6 @@ github:
   source:
     branch: main
 
-collections:
-  - sheets
-
 plugins:
   - jekyll-seo-tag
   - jekyll-remote-theme

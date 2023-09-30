@@ -7,8 +7,15 @@ This site contains an archive of Spyglass sheets, updated daily at 10am UTC. She
 
 Spyglass is [GPLv3](https://github.com/Derpseh/Spyglass/blob/master/LICENSE)-licensed software originally released [here](https://github.com/Derpseh/Spyglass).
 
+{% assign sheets = site.data.sheets | reverse %}
+{% for sheet in sheets %}
+- [{{ sheet.filename }}](https://github.com/esfalsa/spyglass-archive/raw/main/_sheets/{{ sheet.filename }}){% endfor %}
+
+{% comment %}
 {% assign sheets = site.collections | where: "label", "sheets" | first %}
 {% assign files = sheets.files | sort: "name" | reverse %}
 
+
 {% for file in files %} - [{{ file.name }}](sheets/{{ file.name }})
 {% endfor %}
+{% endcomment %}
