@@ -15,7 +15,7 @@ jobs:
     - run: pip install -r requirements.txt
     - run: python Spyglass-cli.py -n Esfalsa --minor 3550 --major 5350 -o "_sheets/Spyglass $(date --date="yesterday" +"%Y-%m-%d").xlsx"
     - run: echo "DATE=$(date --date="yesterday" +"%b %d %Y")" >> ${GITHUB_ENV}
-    - run: echo "Spyglass $(date --date="yesterday" +"%b %d %Y").xlsx" >> _data/sheets.csv
+    - run: echo "Spyglass $(date --date="yesterday" +"%Y-%m-%d").xlsx" >> _data/sheets.csv
     - uses: stefanzweifel/git-auto-commit-action@v4
       with:
         commit_message: Spyglass ${{ env.DATE }}
