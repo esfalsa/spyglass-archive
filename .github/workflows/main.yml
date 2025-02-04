@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v3
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.x'
         cache: 'pip'
@@ -16,7 +16,7 @@ jobs:
     - run: python Spyglass-cli.py -n Esfalsa --minor 3550 --major 5350 -o "_sheets/Spyglass $(date --date="yesterday" +"%Y-%m-%d").xlsx"
     - run: echo "DATE=$(date --date="yesterday" +"%b %d %Y")" >> ${GITHUB_ENV}
     - run: echo "Spyglass $(date --date="yesterday" +"%Y-%m-%d").xlsx" >> _data/sheets.csv
-    - uses: stefanzweifel/git-auto-commit-action@v4
+    - uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: Spyglass ${{ env.DATE }}
         commit_author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
